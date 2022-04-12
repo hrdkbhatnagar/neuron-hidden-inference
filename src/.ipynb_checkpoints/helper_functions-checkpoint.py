@@ -1,3 +1,19 @@
+import numpy as np
+import torch 
+import torch.nn as nn
+import torch.nn.functional as F
+
+import matplotlib.pyplot as plt
+from torch.utils.data import TensorDataset, DataLoader, Dataset
+from torch.autograd import Variable 
+from torch.utils.data.sampler import SubsetRandomSampler
+
+import matplotlib as mpl
+from matplotlib import pyplot as plt
+
+from tqdm import tqdm
+import seaborn as sns
+
 def get_default_device():
     '''
     Picking GPU if available or else CPU
@@ -18,36 +34,47 @@ def to_device(data, device):
         return [to_device(x, device) for x in data]
     return data.to(device, non_blocking=True)
 
-
-def evaluate_model(model,num_epochs,loss_vals, l2_loss_vals, validation_loss, l2_lambda, corr_vals, alpha = 0.1, reg_flag = True):    
+def evaluate_model(model, datagen, model_training_params, l2_lambda, alpha = 0.1, reg_flag = True, corr_flag = True):    
   '''
   Calls the helper plotting functions to plot various evaluation metrics for the models
   
   Args: 
       model: The model being used for evaluation 
-      num_epochs: number of epochs used in training 
-      loss_vals: the list containing training loss values
-      l2_loss_vals: the list containing regularization loss values
-      validation_loss: the list containing validation loss values 
+      datagen: named tuple containing the following values:
+          num_epochs: number of epochs used in training 
+          loss_vals: the list containing training loss values
+          l2_loss_vals: the list containing regularization loss values
+          validation_loss: the list containing validation loss values
+          corr_vals: the list containing correlation values over training
+          
       l2_lambda: the coefficent of L2 regularization 
-      corr_vals: the list containing correlation values over training 
+      corr_flag: Boolean flag used for enabling/disabling plotting correlation values. Used for   
+      compatibility with the initial model architechtures
       alpha: alpha parameter used during plotting for transparency
       reg_flag: Boolean flag used for enabling or disabling regularization curves in the plots 
       
   Returns: 
       None
+      
   '''
+
+  num_epochs  = model_training_params['n_epochs']
+  loss_vals = model_training_params['loss_vals']
+  l2_loss_vals = model_training_params['l2_loss_vals']
+  validation_loss = model_training_params['validation_loss']
+  
+  
   lossplot(num_epochs, loss_vals, l2_loss_vals,l2_lambda, validation_loss, reg_flag) 
   plot_loglosses(num_epochs, loss_vals, l2_loss_vals,l2_lambda, validation_loss, reg_flag)
-  plot_inferred_vs_actual_params(model, alpha = alpha)
-  plot_output_encoder_vs_decoder(model, alpha = alpha)
-  plot_correlation_params(model,alpha = alpha)
-  plot_correlation_outputs(model, alpha = alpha)
-  plot_corr_vs_epochs(num_epochs,corr_vals)
+  plot_inferred_vs_actual_params(model, datagen, alpha = alpha)
+  plot_output_encoder_vs_decoder(model, datagen, alpha = alpha)
+  plot_correlation_params(model, datagen, alpha = alpha)
+  plot_correlation_outputs(model, datagen, alpha = alpha)
+  if corr_flag == True:
+      corr_vals = model_training_params['corr_vals']
+      plot_corr_vs_epochs(num_epochs,corr_vals)
 
-    
-
-def plot_inferred_vs_actual_params(model,alpha = 0.1):
+def plot_inferred_vs_actual_params(model, datagen, alpha = 0.1):
   '''
   Plot a scatterplot of the orginal params with the inferred params
   
@@ -56,9 +83,12 @@ def plot_inferred_vs_actual_params(model,alpha = 0.1):
       
   Returns: 
       None
+
+    REV: Added inputs in the args
   '''
+  
   with torch.no_grad():
-    original  = inputs[:,-1].cpu()
+    original = datagen.inputs[:,-1].cpu()
     inferred = model.h_activity_vec.detach().cpu()
     
   ip_size = original.shape[0]
@@ -141,7 +171,7 @@ def lossplot(epochs, loss_vals, l2_loss_vals,l2_lambda, val_loss, reg_flag ):
   plt.show()
 
 
-def plot_output_encoder_vs_decoder(model,alpha = 0.1):
+def plot_output_encoder_vs_decoder(model, datagen,alpha = 0.1):
   '''
   Plot a scatterplot between the output of the encoder vs the decoder models
   
@@ -153,8 +183,8 @@ def plot_output_encoder_vs_decoder(model,alpha = 0.1):
       None
   '''
   with torch.no_grad():
-    encoder_output  = output.cpu()
-    decoder_output = model(input_w_time_hidden).detach().cpu()
+    encoder_output  = datagen.output.cpu()
+    decoder_output = model(datagen.input_w_time_hidden).detach().cpu()
 
   ip_size = encoder_output.shape[0]
   x = np.arange(0,ip_size)
@@ -169,7 +199,7 @@ def plot_output_encoder_vs_decoder(model,alpha = 0.1):
   plt.show()
 
 
-def plot_correlation_params(model,alpha = 0.1):
+def plot_correlation_params(model,datagen,alpha = 0.1):
   '''
   Plot the correlation between the inferred and ground truth parameter vectors
   
@@ -181,7 +211,7 @@ def plot_correlation_params(model,alpha = 0.1):
       None
   '''
   with torch.no_grad():
-    original  = inputs[:,-1].cpu()
+    original  = datagen.inputs[:,-1].cpu()
     inferred = model.h_activity_vec.detach().cpu()
   
   plt.scatter(original, inferred)
@@ -192,7 +222,7 @@ def plot_correlation_params(model,alpha = 0.1):
 
     
 
-def plot_correlation_outputs(model, alpha = 0.1):
+def plot_correlation_outputs(model, datagen, alpha = 0.1):
   '''
   Plot the correlation between the encoder output and the decoder output
   
@@ -204,8 +234,8 @@ def plot_correlation_outputs(model, alpha = 0.1):
       None
   '''
   with torch.no_grad():
-    encoder_output  = output.cpu()
-    decoder_output = model(input_w_time_hidden).detach().cpu()
+    encoder_output  = datagen.output.cpu()
+    decoder_output = model(datagen.input_w_time_hidden).detach().cpu()
   
   plt.scatter(encoder_output, decoder_output)
   plt.title('Correlation between the encoder and decoder outputs')
@@ -232,10 +262,12 @@ def run_lambda_variation(lambda_list, norm,epochs):
     train_loss = [] 
     
     for norm_lambda in lambda_list:
+        
+        # Instantiate the network 
         model_decoder = neuron_unit_decoder_w_hidden_init_fix().to(device)
-        train_loss_vals, _, val_loss_vals = train_decoder_w_hidden(model_decoder, loss_fn, l_norm = norm, n_epochs = epochs ,n_lambda = norm_lambda)
-        test_loss.append(val_loss_vals[-1])
-        train_loss.append(train_loss_vals[-1])
+        model_training_params = train_decoder_w_hidden(model_decoder, loss_fn, l_norm = norm, n_epochs = epochs ,n_lambda = norm_lambda)
+        test_loss.append(model_training_params['validation_loss'][-1])
+        train_loss.append(model_training_params['loss_vals'][-1])
         print(f'Trained model on lambda: {norm_lambda}\n')
     
     return train_loss, test_loss
@@ -299,3 +331,7 @@ def plot_corr_vs_epochs(epochs,corr_vals):
     plt.ylabel("$R^2$ Coefficient")
     plt.legend()
     plt.show()
+
+
+    
+    
