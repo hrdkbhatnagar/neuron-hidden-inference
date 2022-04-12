@@ -18,7 +18,9 @@ import seaborn as sns
 def get_default_device():
     """
     Picking GPU if available or else CPU
-
+    
+    Args: 
+        None
     Returns:
         The chosen device
     """
@@ -31,6 +33,10 @@ def get_default_device():
 def to_device(data, device):
     """
     Move tensor(s) to chosen device
+    
+    Args:
+        data: the data instance to move to a device
+        device: PyTorch device 
     """
     if isinstance(data, (list, tuple)):
         return [to_device(x, device) for x in data]
@@ -93,11 +99,16 @@ def plot_inferred_vs_actual_params(model, datagen, alpha=0.1):
 
     Args:
         model: the model being used for evaluation
+        datagen: named tuple containing the following values:
+            num_epochs: number of epochs used in training
+            loss_vals: the list containing training loss values
+            l2_loss_vals: the list containing regularization loss values
+            validation_loss: the list containing validation loss values
+            corr_vals: the list containing correlation values over training
 
     Returns:
         None
-
-      REV: Added inputs in the args
+        
     """
 
     with torch.no_grad():
@@ -215,6 +226,12 @@ def plot_output_encoder_vs_decoder(model, datagen, alpha=0.1):
 
     Args:
         model: the model being used for evaluation
+        datagen: named tuple containing the following values:
+            num_epochs: number of epochs used in training
+            loss_vals: the list containing training loss values
+            l2_loss_vals: the list containing regularization loss values
+            validation_loss: the list containing validation loss values
+            corr_vals: the list containing correlation values over training
         alpha: alpha parameter used during plotting for transparency
 
     Returns:
@@ -245,6 +262,12 @@ def plot_correlation_params(model, datagen, alpha=0.1):
 
     Args:
         model: the model being used for evaluation
+        datagen: named tuple containing the following values:
+            num_epochs: number of epochs used in training
+            loss_vals: the list containing training loss values
+            l2_loss_vals: the list containing regularization loss values
+            validation_loss: the list containing validation loss values
+            corr_vals: the list containing correlation values over training
         alpha: alpha parameter used during plotting for transparency
 
     Returns:
@@ -267,6 +290,12 @@ def plot_correlation_outputs(model, datagen, alpha=0.1):
 
     Args:
         model: the model being used for evaluation
+        datagen: named tuple containing the following values:
+            num_epochs: number of epochs used in training
+            loss_vals: the list containing training loss values
+            l2_loss_vals: the list containing regularization loss values
+            validation_loss: the list containing validation loss values
+            corr_vals: the list containing correlation values over training
         alpha: alpha parameter used during plotting for transparency
 
     Returns:
